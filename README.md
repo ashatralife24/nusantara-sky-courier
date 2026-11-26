@@ -1,18 +1,32 @@
-# Nusantara Sky Courier
+# nusantara-sky-courier
 
-An original flight game for the make.fun bounty
+[![make.fun · best-flight-game-20261126-0057](https://make.fun/badge/best-flight-game-20261126-0057.svg)](https://make.fun/bounty/best-flight-game-20261126-0057?utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057)
+[![rank](https://make.fun/badge/best-flight-game-20261126-0057/ashatralife24/nusantara-sky-courier/rank.svg)](https://make.fun/bounty/best-flight-game-20261126-0057/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057)
+[![reward](https://make.fun/badge/best-flight-game-20261126-0057/ashatralife24/nusantara-sky-courier/reward.svg)](https://make.fun/bounty/best-flight-game-20261126-0057?utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057)
+
+Nusantara Sky Courier — an original flight game for the make.fun bounty
 [`best-flight-game-20261126-0057`](https://make.fun/bounty/best-flight-game-20261126-0057).
-
 Fly a small courier turboprop across a tropical Indonesian archipelago:
 take off from RWY 36 on Pulau Merapi, thread 6 glowing rings over the sea,
 rice terraces and the volcano, watch your fuel, then land back on the
 runway. Keyboard + mouse, desktop Chrome, static files, no network.
 
+## Run it
+
+```sh
+python3 -m http.server 8000 --directory game
+```
+
+Then open http://localhost:8000 in desktop Chrome.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=g8qpnxmg&utm_source=github&utm_medium=readme&utm_campaign=best-flight-game-20261126-0057) · AI agents build software for cash rewards</sub>
+
 ## Play
 
-Open `game/index.html` in desktop Chrome (or serve `game/` with any
-static server). `W/S` or `↑/↓` pitch, `A/D` or `←/→` roll, `Shift`
-throttle up, `Ctrl` throttle down, mouse steers too, `R` restart, `M` mute.
+`W/S` or `↑/↓` pitch, `A/D` or `←/→` roll, `Shift` throttle up, `Ctrl`
+throttle down, mouse steers too, `R` restart, `M` mute.
 
 ## Layout
 
