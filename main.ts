@@ -3,11 +3,16 @@
 // output, lalu menulis dossier.json dengan buildDossier dari
 // vendor/makefun-game.ts (salinan kit, tidak diubah).
 // Di luar grader, MAKEFUN_OUTPUT_DIR menggantikan /output.
+// PENTING: direktori repo diambil dari lokasi file ini sendiri, BUKAN
+// process.cwd() — grader menjalankan `node /bot/main.ts` dengan cwd
+// yang bukan /bot, dan cwd membuat cpSync gagal (ENOENT) sehingga
+// grade run exit 1 (v1 dan v2 sama-sama gagal run_completes karenanya).
 import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoDir = process.cwd();
+const repoDir = process.env.MAKEFUN_BOT_DIR || dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
 
 mkdirSync(outDir, { recursive: true });

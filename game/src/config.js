@@ -7,7 +7,7 @@
   var NSC_CONFIG = {
     gameTitle: 'NUSANTARA SKY COURIER',
     gameSubtitle: 'Antar kargo antar pulau — lewati ring, hemat bahan bakar, mendarat di landasan.',
-    version: '1.1.0',
+    version: '1.1.1',
 
     // Dunia (satuan: meter). x = timur, z = selatan, y = ketinggian.
     world: {
