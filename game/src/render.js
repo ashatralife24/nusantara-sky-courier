@@ -66,26 +66,29 @@
       if (z2 < 3) return null;
       var focal = CFG.camera.focal;
       return {
-        x: CX + (xc / z2) * focal,
-        y: CY - (y2 / z2) * focal,
+        x: CX + (xc / z2) * focal + (cam.shakeX || 0),
+        y: CY - (y2 / z2) * focal + (cam.shakeY || 0),
         d: z2,
         s: focal / z2
       };
     }
 
-    function cameraFor(plane) {
+    function cameraFor(plane, shake) {
       var hRad = R.degToRad(plane.headingDeg);
       var fx = Math.sin(hRad);
       var fz = -Math.cos(hRad);
       var rx = Math.cos(hRad);
       var rz = Math.sin(hRad);
       var pitchCam = R.degToRad(plane.pitchDeg * 0.55);
+      var s = shake || 0;
       return {
         x: plane.x - fx * CFG.camera.backDist,
         y: plane.y + CFG.camera.upDist,
         z: plane.z - fz * CFG.camera.backDist,
         fx: fx, fz: fz, rx: rx, rz: rz,
-        cosP: Math.cos(pitchCam), sinP: Math.sin(pitchCam)
+        cosP: Math.cos(pitchCam), sinP: Math.sin(pitchCam),
+        shakeX: (Math.random() * 2 - 1) * s * 7,
+        shakeY: (Math.random() * 2 - 1) * s * 7
       };
     }
 
@@ -222,6 +225,39 @@
         if (lp) { ctx.beginPath(); ctx.arc(lp.x, lp.y, 2.5, 0, Math.PI * 2); ctx.fill(); }
         if (rp) { ctx.beginPath(); ctx.arc(rp.x, rp.y, 2.5, 0, Math.PI * 2); ctx.fill(); }
       }
+      // Lampu PAPI (4 lampu di sisi kiri dekat ambang selatan): panduan
+      // glide-slope saat final — putih = terlalu tinggi, merah = terlalu rendah.
+      var papiZ = rw.z + hl - 25;
+      var whites = papiWhites(plane);
+      for (var pi = 0; pi < 4; pi++) {
+        var pp = project(rw.x - hw - 10 - pi * 9, rw.height + 2, papiZ, cam);
+        if (!pp) continue;
+        ctx.fillStyle = pi < whites ? '#ffffff' : '#ff2d2d';
+        ctx.shadowColor = pi < whites ? '#ffffff' : '#ff2d2d';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(pp.x, pp.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Jumlah lampu PAPI putih (0..4) dari sudut luncur pesawat saat final.
+    // Ideal ~3 derajat (tan 3° ≈ 0.052). Di luar final: tampilkan 2W2R.
+    function papiWhites(plane) {
+      var rw = CFG.runway;
+      var hl = rw.length / 2;
+      var dx = plane.x - rw.x;
+      var dz = plane.z - (rw.z + hl);
+      var dist = Math.sqrt(dx * dx + dz * dz);
+      var headingOk = Math.abs(R.wrapAngleDeg(plane.headingDeg)) < 45;
+      if (dist > 700 || dist < 20 || !headingOk || plane.onGround) return 2;
+      var ratio = (plane.y - rw.height) / dist;
+      if (ratio > 0.075) return 4;
+      if (ratio > 0.060) return 3;
+      if (ratio > 0.045) return 2;
+      if (ratio > 0.030) return 1;
+      return 0;
     }
 
     function drawRings(plane, cam, rings, ringIndex) {
@@ -338,6 +374,46 @@
       ctx.restore();
     }
 
+    // Partikel ledakan saat lewati ring + teks skor melayang.
+    function drawEffects(state, cam) {
+      var i, k;
+      for (i = 0; i < state.particles.length; i++) {
+        var pt = state.particles[i];
+        var p = project(pt.x, pt.y, pt.z, cam);
+        if (!p) continue;
+        var alpha = 1 - pt.age / 0.9;
+        var rad = 10 + pt.age * 110 * Math.max(0.4, p.s);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, alpha);
+        ctx.fillStyle = CFG.colors.ringGlow;
+        for (k = 0; k < 10; k++) {
+          var a = (k / 10) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.arc(p.x + Math.cos(a) * rad, p.y + Math.sin(a) * rad * 0.8,
+            Math.max(2, 5 * (1 - pt.age)), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+      for (i = 0; i < state.popups.length; i++) {
+        var pp = state.popups[i];
+        var q = project(pp.x, pp.y, pp.z, cam);
+        if (!q) continue;
+        var pa = 1 - pp.age / 1.2;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, pa);
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(8,14,22,0.9)';
+        ctx.strokeText(pp.text, q.x, q.y - pp.age * 45);
+        ctx.fillStyle = CFG.colors.hudAmber;
+        ctx.fillText(pp.text, q.x, q.y - pp.age * 45);
+        ctx.restore();
+      }
+    }
+
     function drawHudTop(state) {
       var plane = state.plane;
       ctx.textBaseline = 'alphabetic';
@@ -375,18 +451,27 @@
       ctx.textAlign = 'left';
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 15px sans-serif';
-      var ringText = state.ringIndex < CFG.rings.length
-        ? 'RING ' + (state.ringIndex + 1) + '/' + CFG.rings.length
+      var ringTotal = state.rings.length;
+      var ringText = state.ringIndex < ringTotal
+        ? 'RING ' + (state.ringIndex + 1) + '/' + ringTotal
         : 'SEMUA RING LEWAT — MENDARAT!';
       ctx.fillText(ringText, 22, 92);
       ctx.textAlign = 'right';
       ctx.fillText('SCORE ' + state.score, W - 22, 92);
       ctx.fillText('TIME ' + Math.max(0, Math.ceil(state.timeLeft)) + 's', W - 22, 112);
-      // Panah ke ring berikutnya.
-      if (state.ringIndex < CFG.rings.length && !state.plane.crashed && !state.plane.landed) {
-        var ring = CFG.rings[state.ringIndex];
-        var dx = ring.x - plane.x;
-        var dz = ring.z - plane.z;
+      // Panah ke ring berikutnya (atau ke landasan bila semua ring lewat).
+      var target = null;
+      var targetLabel = '';
+      if (state.ringIndex < ringTotal && !state.plane.crashed && !state.plane.landed) {
+        target = state.rings[state.ringIndex];
+        targetLabel = '';
+      } else if (state.ringIndex >= ringTotal && !state.plane.crashed && !state.plane.landed && !state.plane.onGround) {
+        target = { x: CFG.runway.x, z: CFG.runway.z };
+        targetLabel = 'LANDASAN ';
+      }
+      if (target) {
+        var dx = target.x - plane.x;
+        var dz = target.z - plane.z;
         var bearing = R.radToDeg(Math.atan2(dx, -dz));
         var rel = R.wrapAngleDeg(bearing - plane.headingDeg);
         var dist = Math.round(Math.sqrt(dx * dx + dz * dz));
@@ -394,7 +479,30 @@
         ctx.fillStyle = CFG.colors.hudAmber;
         ctx.font = 'bold 16px sans-serif';
         var arrow = rel > 25 ? '▶ BELOK KANAN' : rel < -25 ? '◀ BELOK KIRI' : '▲ LURUS';
-        ctx.fillText(arrow + '  •  ' + dist + ' m', CX, 92);
+        ctx.fillText(arrow + '  •  ' + targetLabel + dist + ' m', CX, 92);
+      }
+      // Indikator glide-slope saat final (semua ring sudah lewat):
+      // putih = terlalu tinggi, merah = terlalu rendah, hijau = pas.
+      if (state.ringIndex >= ringTotal && !plane.crashed && !plane.landed && !plane.onGround) {
+        var rw = CFG.runway;
+        var hl = rw.length / 2;
+        var gdx = plane.x - rw.x;
+        var gdz = plane.z - (rw.z + hl);
+        var gdist = Math.sqrt(gdx * gdx + gdz * gdz);
+        var gOk = Math.abs(R.wrapAngleDeg(plane.headingDeg)) < 45 && gdist < 700 && gdist > 20;
+        if (gOk) {
+          var ratio = (plane.y - rw.height) / gdist;
+          var gText, gCol;
+          if (ratio > 0.075) { gText = '▲ TERLALU TINGGI — TURUNKAN HIDUNG'; gCol = '#ffffff'; }
+          else if (ratio > 0.060) { gText = '▲ SEDIKIT TINGGI'; gCol = '#ffffff'; }
+          else if (ratio > 0.045) { gText = '● ON GLIDE — TAHAN'; gCol = CFG.colors.hudGreen; }
+          else if (ratio > 0.030) { gText = '▼ SEDIKIT RENDAH'; gCol = CFG.colors.hudRed; }
+          else { gText = '▼ TERLALU RENDAH — NAIK!'; gCol = CFG.colors.hudRed; }
+          ctx.textAlign = 'center';
+          ctx.fillStyle = gCol;
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillText(gText, CX, 132);
+        }
       }
     }
 
@@ -526,6 +634,23 @@
       }
     }
 
+    // Petunjuk kontrol selama 30 detik pertama terbang (memudar).
+    function drawHints(state) {
+      if (state.status !== 'flying' || state.runTimeSec >= 30) return;
+      var a = state.runTimeSec < 25 ? 0.92 : 0.92 * (30 - state.runTimeSec) / 5;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(8,14,22,0.75)';
+      var tw = 640;
+      ctx.fillRect(CX - tw / 2, H - 178, tw, 34);
+      ctx.fillStyle = '#eaf6ff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('W/S naik–turun   •   A/D belok   •   SHIFT gas   •   Mouse juga bisa kemudi', CX, H - 161);
+      ctx.restore();
+    }
+
     function drawOverlay(state) {
       if (state.status === 'flying') return;
       ctx.fillStyle = 'rgba(6,10,18,0.62)';
@@ -544,44 +669,88 @@
         ctx.fillText('Misi: lewati 6 ring kuning, lalu mendarat di RWY 36 Pulau Merapi.', CX, H * 0.42);
         ctx.fillText('W / ↑ naik  •  S / ↓ turun  •  A / D belok  •  SHIFT gas  •  Mouse juga bisa mengemudi', CX, H * 0.42 + 26);
         ctx.fillText('Hemat bahan bakar — setiap ring memberi +12% fuel dan 250 poin.', CX, H * 0.42 + 52);
+        if (state.bestScore > 0) {
+          ctx.fillStyle = CFG.colors.hudAmber;
+          ctx.fillText('SKOR TERBAIK: ' + state.bestScore, CX, H * 0.42 + 78);
+        }
         ctx.font = 'bold 20px sans-serif';
         ctx.fillStyle = '#fff';
         var pulse = 0.6 + 0.4 * Math.sin(state.timeSec * 3);
         ctx.globalAlpha = pulse;
-        ctx.fillText('TEKAN ENTER ATAU KLIK UNTUK TERBANG', CX, H * 0.56);
+        ctx.fillText('TEKAN ENTER / 2 = TANTANG   •   TEKAN 1 = SANTAI', CX, H * 0.56);
         ctx.globalAlpha = 1;
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#bfefff';
+        ctx.fillText('Santai: bahan bakar lebih hemat, pendaratan lebih longgar, waktu lebih panjang.', CX, H * 0.56 + 28);
       } else if (state.status === 'crashed') {
         ctx.font = 'bold 48px sans-serif';
         ctx.fillStyle = CFG.colors.hudRed;
-        ctx.fillText('PESAWAT JATUH', CX, H * 0.38);
-        ctx.font = '18px sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.fillText('Skor ' + state.score + '  •  Ring ' + state.ringIndex + '/' + CFG.rings.length, CX, H * 0.38 + 36);
-        ctx.fillText('Tekan R untuk terbang lagi', CX, H * 0.38 + 66);
+        ctx.fillText('PESAWAT JATUH', CX, H * 0.34);
+        ctx.font = 'bold 20px sans-serif';
+        ctx.fillStyle = '#ffb3b3';
+        if (state.crashLabel) ctx.fillText(state.crashLabel, CX, H * 0.34 + 34);
+        ctx.font = '16px sans-serif';
+        ctx.fillStyle = '#eaf6ff';
+        if (state.crashTip) ctx.fillText(state.crashTip, CX, H * 0.34 + 62);
+        drawEndStats(state, H * 0.34 + 100);
       } else if (state.status === 'landed' || state.status === 'complete') {
         ctx.font = 'bold 48px sans-serif';
         ctx.fillStyle = CFG.colors.hudGreen;
-        ctx.fillText(state.status === 'complete' ? 'MISI SELESAI!' : 'BERHASIL MENDARAT!', CX, H * 0.38);
-        ctx.font = '18px sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.fillText('Skor ' + state.score + '  •  Kualitas mendarat ' +
-          Math.round(state.landingQuality * 100) + '%', CX, H * 0.38 + 36);
-        ctx.fillText('Tekan R untuk terbang lagi', CX, H * 0.38 + 66);
+        ctx.fillText(state.status === 'complete' ? 'MISI SELESAI!' : 'BERHASIL MENDARAT!', CX, H * 0.30);
+        var fs = state.finalStats;
+        if (fs && fs.landing) {
+          ctx.font = 'bold 34px sans-serif';
+          ctx.fillStyle = CFG.colors.hudAmber;
+          ctx.fillText('GRADE ' + fs.landing.grade + '  •  ' +
+            Math.round(fs.landing.quality * 100) + '%', CX, H * 0.30 + 46);
+          ctx.font = '15px sans-serif';
+          ctx.fillStyle = '#eaf6ff';
+          var bd = fs.landing.breakdown;
+          ctx.fillText('Kecepatan ' + Math.round(bd.speed * 100) + '%  •  Kelurusan ' +
+            Math.round(bd.center * 100) + '%  •  Kelembutan ' +
+            Math.round(bd.soft * 100) + '%', CX, H * 0.30 + 72);
+        }
+        drawEndStats(state, H * 0.30 + 104);
       }
+    }
+
+    // Baris statistik akhir + skor terbaik + ajakan main lagi.
+    function drawEndStats(state, y0) {
+      var fs = state.finalStats;
+      ctx.font = '18px sans-serif';
+      ctx.fillStyle = '#fff';
+      var mins = fs ? Math.floor(fs.timeUsed / 60) : 0;
+      var secs = fs ? fs.timeUsed % 60 : 0;
+      var timeStr = mins + ':' + ('0' + secs).slice(-2);
+      ctx.fillText('Skor ' + state.score + '  •  Ring ' + state.ringIndex + '/' + state.rings.length +
+        '  •  Waktu ' + timeStr + '  •  Fuel sisa ' + (fs ? fs.fuelLeft : 0) + '%', CX, y0);
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = CFG.colors.hudAmber;
+      var bestLine = 'SKOR TERBAIK: ' + (fs ? fs.bestScore : state.bestScore);
+      if (fs && fs.isNewBest) bestLine += '  —  REKOR BARU!';
+      ctx.fillText(bestLine, CX, y0 + 30);
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = '#fff';
+      var pulse = 0.6 + 0.4 * Math.sin(state.timeSec * 3);
+      ctx.globalAlpha = pulse;
+      ctx.fillText('TEKAN R UNTUK TERBANG LAGI', CX, y0 + 66);
+      ctx.globalAlpha = 1;
     }
 
     function render(state) {
       var plane = state.plane;
-      var cam = cameraFor(plane);
+      var cam = cameraFor(plane, state.shake);
       drawSky(plane, state.timeSec);
       drawTerrain(plane, cam);
       drawRunway(plane, cam);
-      drawRings(plane, cam, CFG.rings, state.ringIndex);
+      drawRings(plane, cam, state.rings, state.ringIndex);
+      drawEffects(state, cam);
       drawPlaneShadow(plane, cam);
       drawPlane(plane, state.timeSec);
       drawHudTop(state);
       drawInstruments(state);
       drawWarnings(state, state.timeSec);
+      drawHints(state);
       drawOverlay(state);
     }
 

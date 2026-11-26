@@ -7,7 +7,7 @@
   var NSC_CONFIG = {
     gameTitle: 'NUSANTARA SKY COURIER',
     gameSubtitle: 'Antar kargo antar pulau — lewati ring, hemat bahan bakar, mendarat di landasan.',
-    version: '1.0.0',
+    version: '1.1.0',
 
     // Dunia (satuan: meter). x = timur, z = selatan, y = ketinggian.
     world: {
@@ -43,6 +43,8 @@
     },
 
     // Misi: 6 ring lalu mendarat. Setiap ring: posisi, ketinggian, radius.
+    // Posisi ring diacak ringan setiap run (lihat game.js) agar tiap
+    // ronde terasa beda; nilai di sini adalah posisi dasar.
     rings: [
       { x: 100,  z: 650,  y: 150, r: 22, label: '1' },
       { x: 620,  z: -260, y: 190, r: 22, label: '2' },
@@ -69,6 +71,21 @@
       perfectLandingBonus: 250, // mendarat pelan di tengah landasan
       timeBonusPerSec: 2,       // sisa waktu dihitung saat misi selesai
       missionTimeLimitSec: 420
+    },
+
+    // Mode permainan: Santai (maaf, bahan bakar hemat, pendaratan
+    // longgar) vs Tantang (aturan standar). Dipilih di layar judul.
+    modes: {
+      relaxed: { label: 'SANTAI', fuelScale: 0.7, landSpeedMax: 55, timeLimitSec: 540 },
+      challenge: { label: 'TANTANG', fuelScale: 1.0, landSpeedMax: 48, timeLimitSec: 420 }
+    },
+
+    // Variasi per run (tetap ringan): ring digeser acak dalam batas ini,
+    // angin dorong pelan berubah tiap run.
+    runVariation: {
+      ringJitterXZ: 60,  // meter, acak di sumbu x/z
+      ringJitterY: 15,   // meter, acak di ketinggian
+      windMax: 2.5       // m/s dorongan angin
     },
 
     // Kamera chase-view.

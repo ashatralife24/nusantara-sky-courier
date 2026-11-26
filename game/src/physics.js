@@ -23,7 +23,13 @@
       onGround: true,
       landed: false,
       crashed: false,
-      airTimeSec: 0
+      crashReason: null, // 'speed' | 'steep' | 'terrain' — diisi saat tabrakan
+      airTimeSec: 0,
+      // Diisi per run oleh game.js; bila tidak ada, pakai nilai standar.
+      windX: 0,          // m/s dorongan angin (variasi ringan per run)
+      windZ: 0,
+      fuelScale: 1,      // 0.7 di mode Santai
+      landSpeedMax: 48   // 55 di mode Santai
     };
   }
 
@@ -79,6 +85,12 @@
     plane.z += forwardZ * horizontal * plane.speed * dt;
     plane.y += plane.verticalSpeed * dt;
 
+    // Angin: dorongan pelan konstan per run (0 bila tidak diisi).
+    if (plane.windX || plane.windZ) {
+      plane.x += (plane.windX || 0) * dt;
+      plane.z += (plane.windZ || 0) * dt;
+    }
+
     // Batas dunia: pantulkan halus di tepi.
     var edge = CFG.world.size / 2 - 120;
     if (Math.abs(plane.x) > edge || Math.abs(plane.z) > edge) {
@@ -88,8 +100,9 @@
     }
     if (plane.y > 650) { plane.y = 650; plane.pitchDeg = Math.min(plane.pitchDeg, 0); }
 
-    // Bahan bakar.
-    var burn = (P.fuelBurnIdle + (P.fuelBurnPerSec - P.fuelBurnIdle) * plane.throttle) * dt;
+    // Bahan bakar (diskal oleh fuelScale mode Santai).
+    var burn = (P.fuelBurnIdle + (P.fuelBurnPerSec - P.fuelBurnIdle) * plane.throttle) *
+      (plane.fuelScale || 1) * dt;
     plane.fuel = Math.max(0, plane.fuel - burn);
     if (plane.fuel <= 0) plane.throttle = 0;
 
@@ -113,7 +126,8 @@
 
     if (clearance <= 1.5 && !plane.onGround) {
       var onRwy = WORLD.onRunway(plane.x, plane.z);
-      var gentle = plane.verticalSpeed > -10 && plane.speed < 48;
+      var maxLandSpeed = plane.landSpeedMax || 48;
+      var gentle = plane.verticalSpeed > -10 && plane.speed < maxLandSpeed;
       if (plane.verticalSpeed >= 0) {
         // Mendaki menjauhi tanah: bukan tabrakan, jangan biarkan menembus tanah.
         plane.y = ground + 1.5;
@@ -129,10 +143,17 @@
         plane.onGround = true;
         plane.speed = 0;
       } else {
-        // Tabrakan.
+        // Tabrakan — catat alasannya agar pemain tahu apa yang salah.
         plane.damage = 100;
         plane.crashed = true;
         plane.y = ground + 1;
+        if (onRwy && plane.speed >= maxLandSpeed) {
+          plane.crashReason = 'speed';   // terlalu cepat saat touchdown
+        } else if (plane.verticalSpeed <= -10) {
+          plane.crashReason = 'steep';   // turun terlalu curam
+        } else {
+          plane.crashReason = 'terrain'; // menabrak bukit/tanah
+        }
       }
     } else if (clearance > 1.5) {
       plane.onGround = false;
@@ -141,15 +162,35 @@
 
   // Skor pendaratan: 0..1 dari kecepatan, kelembutan, dan posisi tengah.
   function landingQuality(plane) {
+    return landingBreakdown(plane).total;
+  }
+
+  // Rincian skor pendaratan (0..1 per komponen) untuk layar akhir.
+  function landingBreakdown(plane) {
     var speedOk = R.clamp(1 - Math.abs(plane.speed - 30) / 30, 0, 1);
     var centerOk = R.clamp(1 - WORLD.runwayCenterOffset(plane.x, plane.z) / 21, 0, 1);
     var softOk = R.clamp(1 - Math.abs(plane.verticalSpeed) / 6, 0, 1);
-    return (speedOk * 0.4 + centerOk * 0.35 + softOk * 0.25);
+    return {
+      speed: speedOk,
+      center: centerOk,
+      soft: softOk,
+      total: speedOk * 0.4 + centerOk * 0.35 + softOk * 0.25
+    };
+  }
+
+  // Grade pendaratan dari kualitas 0..1.
+  function landingGrade(quality) {
+    if (quality >= 0.9) return 'S';
+    if (quality >= 0.75) return 'A';
+    if (quality >= 0.55) return 'B';
+    return 'C';
   }
 
   global.NSC_PHYSICS = {
     createPlane: createPlane,
     stepPlane: stepPlane,
-    landingQuality: landingQuality
+    landingQuality: landingQuality,
+    landingBreakdown: landingBreakdown,
+    landingGrade: landingGrade
   };
 })(typeof window !== 'undefined' ? window : globalThis);
